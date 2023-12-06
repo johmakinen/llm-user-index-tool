@@ -15,6 +15,7 @@ import openai
 st.set_page_config(
     layout="centered", page_icon=":knot:", page_title="Chat with your data"
 )
+st.title("🦙 Llama Chat 🦙")
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 openai_api_key_user = st.sidebar.text_input("OpenAI API Key")
@@ -23,29 +24,44 @@ if openai_api_key_user:
 
 
 @st.cache_resource(show_spinner=False)
-def load_data():
+def load_data(url_list):
     with st.spinner(
         text="Loading and indexing the documents – hang tight! This should take 1-2 minutes."
     ):
         SimpleWebPageReader = download_loader("SimpleWebPageReader")
 
-        loader = SimpleWebPageReader()
-        documents = loader.load_data(urls=['https://google.com'])
-        index = VectorStoreIndex.from_documents(documents)
+        loader = SimpleWebPageReader(html_to_text=True)
+        documents = loader.load_data(urls=url_list)
+        service_context = ServiceContext.from_defaults(
+            llm=OpenAI(
+                model="gpt-3.5-turbo",
+                temperature=0.5,
+                system_prompt="You are an expert on the reading web pages and answering questions about the contents. Keep your answers short and based on facts – do not hallucinate features.",
+            )
+        )
+        index = VectorStoreIndex.from_documents(
+            documents, service_context=service_context
+        )
     return index
 
+url_list = st.text_input(label="input_urls", placeholder="url1,url2,...,urlN")
+if url_list:
+    url_list = url_list.split(",")
 
-# check if storage already exists
-if not os.path.exists("./storage"):
-    index = load_data()
-    # store it for later
-    index.storage_context.persist()
-else:
-    # load the existing index
-    storage_context = StorageContext.from_defaults(persist_dir="./storage")
-    index = load_index_from_storage(storage_context)
+if not url_list:
+    st.stop()
 
-st.header("📚 Chat with this bot. 🦙")
+index = load_data(url_list=url_list)
+
+# # check if storage already exists <- use this ifelse to avoid reindexing
+# if not os.path.exists("./storage"):
+#     index = load_data(url_list=url_list)
+#     # store it for later
+#     index.storage_context.persist()
+# else:
+#     # load the existing index
+#     storage_context = StorageContext.from_defaults(persist_dir="./storage")
+#     index = load_index_from_storage(storage_context)
 
 st.divider()
 
@@ -54,7 +70,7 @@ if "messages" not in st.session_state.keys():
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "Ask me a question about HITAS evaluations! Example: What would it cost to build a 6 story building in Kalasatama?",
+            "content": "Ask me a question about your webpages!",
         }
     ]
 
